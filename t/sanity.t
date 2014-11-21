@@ -1,5 +1,10 @@
 # vim:set ft= ts=4 sw=4 et:
 
+#
+# Run tests with:
+# PATH=/usr/local/openresty/nginx/sbin/:$PATH prove -r t
+#
+
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
@@ -23,6 +28,54 @@ log_level('debug');
 run_tests();
 
 __DATA__
+
+=== TEST 0: TES
+--- http_config eval: $::HttpConfig
+--- config
+    location /t {
+        content_by_lua '
+            function url_encode(str)
+                if (str) then
+                    str = string.gsub (str, "\\\\n", "\\\\r\\\\n")
+                    str = string.gsub (str, "([^%w %-%_%.%~])",
+                        function (c) return string.format ("%%%02X", string.byte(c)) end)
+                    str = string.gsub (str, " ", "+")
+                end
+                return str
+            end
+
+            local ck = require "resty.cookie"
+            local cookie, err = ck:new()
+            if not cookie then
+                ngx.log(ngx.ERR, err)
+                return
+            end
+
+            local fields = cookie:get_all()
+            local new_cookie_parts = {}
+            local i = 1
+            for k, v in pairs(fields) do
+                if k ~= "BADCookie" then
+                    ngx.say(k, " => ", v)
+                    new_cookie_parts[i] = k .. "=" .. v
+                    i = i + 1
+                end
+            end
+            ngx.req.set_header("Cookie", table.concat(new_cookie_parts, "; "))
+            ngx.say(ngx.req.get_headers()["Cookie"])
+        ';
+    }
+--- request
+GET /t
+--- more_headers
+Cookie: SID=31d4d96e407aad42; BADCookie=ohsnap!===
+--- no_error_log
+[error]
+--- response_body
+SID => 31d4d96e407aad42
+SID=31d4d96e407aad42
+
+
 
 === TEST 1: sanity
 --- http_config eval: $::HttpConfig
